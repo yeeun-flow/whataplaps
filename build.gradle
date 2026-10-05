@@ -1,5 +1,7 @@
 plugins {
     id 'java'
+    id 'com.epages.restdocs-api-spec' version '0.20.1'
+    id 'org.asciidoctor.jvm.convert' version '4.0.5'
     id 'org.springframework.boot' version '4.1.1'
     id 'com.diffplug.spotless' version '8.10.3'
 }
@@ -34,4 +36,108 @@ spotless {
     java {
         googleJavaFormat('1.28.0')
     }
+}
+
+// One set of tested snippets produces both REST Docs and the Swagger UI specification.
+configurations { swaggerUiAssets }
+
+dependencies {
+    testImplementation 'org.springframework.restdocs:spring-restdocs-mockmvc'
+    testImplementation 'com.epages:restdocs-api-spec-mockmvc:0.20.1'
+    swaggerUiAssets 'org.webjars:swagger-ui:5.33.1'
+}
+
+def snippetsDir = layout.buildDirectory.dir('generated-snippets')
+def specDir = layout.buildDirectory.dir('api-spec')
+def restDocsDir = layout.buildDirectory.dir('restdocs')
+def docResources = layout.buildDirectory.dir('generated-doc-resources')
+
+tasks.named('test') {
+    outputs.dir snippetsDir
+    systemProperty 'org.springframework.restdocs.outputDir', snippetsDir.get().asFile.absolutePath
+    doFirst { delete snippetsDir, specDir, restDocsDir, docResources }
+}
+
+openapi3 {
+    server = '/'
+    title = '와탭랩스 사용자 파일 API'
+    description = '실제 API 테스트에서 생성한 명세입니다.'
+    version = project.version.toString()
+    format = 'json'
+    snippetsDirectory = snippetsDir.get().asFile.absolutePath
+    outputDirectory = specDir.get().asFile.absolutePath
+}
+
+// Replace the plugin's default check dependency to avoid check -> apiDocs -> check cycles.
+afterEvaluate {
+    tasks.named('openapi3') {
+        setDependsOn([tasks.named('test')])
+        doNotTrackState('restdocs-api-spec Server task inputs are not serializable')
+        doLast {
+            def output = specDir.get().file('openapi3.json').asFile
+            def parser = new groovy.json.JsonSlurper()
+            def spec = parser.parse(output)
+            assert spec.paths.keySet() == ['/users', '/users/{id}', '/users/search', '/users/parse-errors', '/users/reload'].toSet()
+            spec.paths.each { path, operations ->
+                operations.each { method, operation ->
+                    assert method == (path == '/users/reload' ? 'post' : 'get')
+                    // The plugin merges snippet name prefixes; assign unique IDs for UI controls.
+                    operation.operationId = method + '_' + path.replaceAll('[^a-zA-Z0-9]+', '_')
+                    assert !operation.containsKey('requestBody')
+                    assert operation.responses.containsKey('200')
+                    // Convert plugin string examples to JSON objects/arrays for Swagger UI.
+                    operation.responses.values().each { response ->
+                        response.content?.get('application/json')?.examples?.values()?.each { example ->
+                            if (example.value instanceof String) example.value = parser.parseText(example.value)
+                        }
+                    }
+                }
+            }
+            // Parameter descriptions and these bounds match the tested controller contract.
+            spec.paths['/users'].get.parameters.each { parameter ->
+                if (parameter.name == 'page') parameter.schema += [minimum: 0, default: 0, format: 'int32']
+                if (parameter.name == 'size') parameter.schema += [minimum: 1, maximum: 100, default: 20, format: 'int32']
+            }
+            assert spec.paths['/users'].get.responses.containsKey('400')
+            assert spec.paths['/users/{id}'].get.responses.containsKey('404')
+            assert spec.paths['/users/search'].get.responses.containsKey('400')
+            assert spec.paths['/users/reload'].post.responses.containsKey('503')
+            output.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(spec))
+        }
+    }
+}
+
+asciidoctor {
+    dependsOn tasks.named('test')
+    sourceDir = file('src/docs/asciidoc')
+    outputDir = restDocsDir.get().asFile
+    sources { include 'index.adoc' }
+    attributes 'snippets': snippetsDir.get().asFile.absolutePath
+    inputs.dir snippetsDir
+}
+
+tasks.register('apiDocs', Sync) {
+    group = 'documentation'
+    description = 'Generate tested REST Docs, OpenAPI and Swagger UI assets.'
+    dependsOn 'asciidoctor', 'openapi3'
+    into docResources.map { it.dir('static/docs') }
+    from(restDocsDir)
+    from(specDir) { include 'openapi3.json' }
+    from('src/docs/ui')
+    from({ zipTree(configurations.swaggerUiAssets.singleFile) }) {
+        include 'META-INF/resources/webjars/swagger-ui/5.33.1/swagger-ui-bundle.js'
+        include 'META-INF/resources/webjars/swagger-ui/5.33.1/swagger-ui.css'
+        eachFile { path = 'assets/' + name }
+        includeEmptyDirs = false
+    }
+}
+
+tasks.named('check') { dependsOn 'apiDocs' }
+tasks.named('bootJar') {
+    dependsOn 'apiDocs'
+    from(docResources) { into 'BOOT-INF/classes' }
+}
+tasks.named('bootRun') {
+    dependsOn 'apiDocs'
+    classpath += files(docResources)
 }

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>와탭랩스 API · Swagger UI</title>
+  <link rel="stylesheet" href="assets/swagger-ui.css">
+</head>
+<body>
+  <p><a href="index.html">REST Docs</a> · <a href="openapi3.json">OpenAPI JSON</a></p>
+  <p>Try it out으로 실행 중인 서버에 요청합니다. POST /users/reload는 실제 사용자 파일을 재적재합니다.</p>
+  <div id="swagger-ui"></div>
+  <script src="assets/swagger-ui-bundle.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: 'openapi3.json',
+      dom_id: '#swagger-ui',
+      presets: [SwaggerUIBundle.presets.apis],
+      validatorUrl: null,
+      supportedSubmitMethods: ['get', 'post']
+    });
+  </script>
+</body>
+</html>

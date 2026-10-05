@@ -1,0 +1,61 @@
+= 와탭랩스 사용자 API
+:toc: left
+
+link:swagger-ui.html[Swagger UI] | link:openapi3.json[OpenAPI JSON]
+
+== 계약
+
+사용자는 파일 순서로 반환합니다. 페이지는 0부터 시작하며 기본 크기는 20, 최대 크기는 100입니다.
+이름 검색은 앞뒤 공백을 제거하고 대소문자를 구분하는 부분 문자열 검색입니다.
+재적재는 요청 본문 없이 POST로 수행합니다. 정상 행과 파싱 실패 목록을 함께 교체합니다.
+파일 읽기가 완료되면 정상 사용자와 실패 목록을 함께 교체합니다. 빈 파일·전부 실패한 파일도 새 결과로 교체합니다.
+중복 ID는 첫 정상 행을 유지하고 이후 행을 실패 데이터로 기록합니다.
+행 파싱 오류는 해당 행만 제외합니다. 파일 읽기 실패 시 503을 반환하며 기존 데이터를 유지합니다.
+
+오류 본문은 `code/message`입니다. 내부 파일 경로와 예외 원인은 응답에 노출하지 않습니다.
+
+|===
+|오류 코드 |HTTP 상태 |조건
+|INVALID_REQUEST |400 |잘못된 페이지·크기·ID·검색어
+|USER_NOT_FOUND |404 |해당 ID가 없음
+|USER_FILE_UNAVAILABLE |503 |재적재 파일을 읽거나 UTF-8로 해독할 수 없음
+|INTERNAL_ERROR |500 |예상하지 못한 서버 오류
+|===
+
+== 전체 사용자 페이지 조회
+include::{snippets}/users-page/http-request.adoc[]
+include::{snippets}/users-page/http-response.adoc[]
+include::{snippets}/users-page/response-fields.adoc[]
+
+=== 페이지 크기 상한 초과
+include::{snippets}/users-invalid-page/http-response.adoc[]
+
+== ID로 사용자 조회
+include::{snippets}/user-detail/http-request.adoc[]
+include::{snippets}/user-detail/http-response.adoc[]
+include::{snippets}/user-detail/response-fields.adoc[]
+
+=== 존재하지 않는 사용자
+include::{snippets}/user-not-found/http-response.adoc[]
+include::{snippets}/user-not-found/response-fields.adoc[]
+
+== 이름 부분 문자열 검색
+include::{snippets}/users-search/http-request.adoc[]
+include::{snippets}/users-search/http-response.adoc[]
+include::{snippets}/users-search/response-fields.adoc[]
+
+=== 빈 검색어
+include::{snippets}/users-invalid-search/http-response.adoc[]
+
+== 파싱 실패 조회
+include::{snippets}/users-parse-errors/http-request.adoc[]
+include::{snippets}/users-parse-errors/http-response.adoc[]
+include::{snippets}/users-parse-errors/response-fields.adoc[]
+
+== 파일 재적재
+include::{snippets}/users-reload/http-request.adoc[]
+include::{snippets}/users-reload/http-response.adoc[]
+include::{snippets}/users-reload/response-fields.adoc[]
+
+=== 파일 읽기 실패
+include::{snippets}/users-file-unavailable/http-response.adoc[]
