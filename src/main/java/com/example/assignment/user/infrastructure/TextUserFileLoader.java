@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class TextUserFileLoader implements UserFileLoader {
   private static final Logger log = LoggerFactory.getLogger(TextUserFileLoader.class);
+  private static final String BOM = "\uFEFF";
   private final Path path;
   private final UserLineParser parser = new UserLineParser();
 
@@ -28,26 +30,21 @@ public class TextUserFileLoader implements UserFileLoader {
   }
 
   public UserSnapshot load() {
-    var users = new LinkedHashMap<Long, User>();
+    var usersById = new LinkedHashMap<Long, User>();
     var failures = new ArrayList<ParseFailure>();
     try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-      String raw;
+      String rawLine;
       int lineNumber = 0;
-      boolean preamble = true;
-      while ((raw = reader.readLine()) != null) {
+      while ((rawLine = reader.readLine()) != null) {
         lineNumber++;
-        String line = lineNumber == 1 && raw.startsWith("\uFEFF") ? raw.substring(1) : raw;
-        if (line.isBlank()) continue;
-        if (preamble
-            && (line.replaceAll("\\s", "").equals("ID,이름,나이,성별,연봉") || line.strip().matches("=+")))
+        String line = removeBomOnFirstLine(rawLine, lineNumber);
+        if (line.isBlank()) {
           continue;
-        preamble = false;
+        }
         try {
-          var user = parser.parse(line);
-          if (users.putIfAbsent(user.id(), user) != null)
-            throw new InvalidUserDataException("중복 ID입니다. 첫 번째 정상 행을 유지합니다.");
+          parseAndAddUser(line, usersById);
         } catch (InvalidUserDataException exception) {
-          failures.add(new ParseFailure(lineNumber, raw, exception.getMessage()));
+          failures.add(new ParseFailure(lineNumber, rawLine, exception.getMessage()));
           log.warn("User parsing failed line={} reason={}", lineNumber, exception.getMessage());
         }
       }
@@ -55,7 +52,18 @@ public class TextUserFileLoader implements UserFileLoader {
       log.error("User file loading failed", exception);
       throw new UserFileReadException(exception);
     }
-    log.info("User file loaded users={} failures={}", users.size(), failures.size());
-    return new UserSnapshot(new ArrayList<>(users.values()), failures);
+    log.info("User file loaded users={} failures={}", usersById.size(), failures.size());
+    return new UserSnapshot(new ArrayList<>(usersById.values()), failures);
+  }
+
+  private String removeBomOnFirstLine(String rawLine, int lineNumber) {
+    return lineNumber == 1 && rawLine.startsWith(BOM) ? rawLine.substring(BOM.length()) : rawLine;
+  }
+
+  private void parseAndAddUser(String line, Map<Long, User> usersById) {
+    var user = parser.parse(line);
+    if (usersById.putIfAbsent(user.id(), user) != null) {
+      throw new InvalidUserDataException("중복 ID입니다. 첫 번째 정상 행을 유지합니다.");
+    }
   }
 }
