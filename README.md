@@ -82,3 +82,4 @@ USER_FILE=/absolute/path/user.txt ./gradlew bootRun
 - HTTP 오류: 잘못된 입력·없는 사용자·파일 읽기 실패·예상 밖 오류
 - 동시성/데이터 보존: 동시 재적재 직렬화·실패 시 기존 데이터 유지
 - 테스트 데이터: 별도 fixture·임시 파일 사용, 실행용 `user.txt` 변경 없음
+- 메모리 측정: [적재·재적재 측정 결과 및 재현 방법](docs/performance/memory-report.md)

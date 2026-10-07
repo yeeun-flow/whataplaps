@@ -32,19 +32,49 @@ class UserLoadingTests {
   }
 
   @Test
-  void preservesLineNumbersAndFirstValidDuplicateAndSkipsPreamble() throws Exception {
+  void preservesLineNumbersAndFirstValidDuplicate() throws Exception {
     var file = directory.resolve("users.txt");
-    Files.writeString(
-        file, "\uFEFFID , 이름 , 나이 , 성별 , 연봉\n===\n\n1, 첫째,0,F,0\n1,둘째,20,M,100\n2,셋째,21,M,1_000\n");
+    Files.writeString(file, "\uFEFF1, 첫째,0,F,0\n\n1,둘째,20,M,100\n2,셋째,21,M,1_000\n");
     var result = new TextUserFileLoader(file.toString()).load();
     assertThat(result.users()).extracting(User::name).containsExactly("첫째", "셋째");
     assertThat(result.failures())
         .singleElement()
         .satisfies(
             f -> {
-              assertThat(f.lineNumber()).isEqualTo(5);
+              assertThat(f.lineNumber()).isEqualTo(3);
               assertThat(f.reason()).contains("중복");
             });
+  }
+
+  @Test
+  void headerAndSeparatorAreFailuresRegardlessOfPosition() throws Exception {
+    var file = directory.resolve("users.txt");
+    Files.writeString(
+        file, "\n ID , 이름 , 나이 , 성별 , 연봉\n===\nbad\nID,이름,나이,성별,연봉\n===\n1,정상,20,X,100\n");
+
+    var result = new TextUserFileLoader(file.toString()).load();
+
+    assertThat(result.users()).containsExactly(new User(1, "정상", 20, "X", 100));
+    assertThat(result.failures())
+        .extracting(ParseFailure::lineNumber)
+        .containsExactly(2, 3, 4, 5, 6);
+    assertThat(result.failures())
+        .extracting(ParseFailure::rawLine)
+        .containsExactly(" ID , 이름 , 나이 , 성별 , 연봉", "===", "bad", "ID,이름,나이,성별,연봉", "===");
+  }
+
+  @Test
+  void removesBomOnlyOnFirstLineAndPreservesFailureOriginal() throws Exception {
+    var file = directory.resolve("users.txt");
+    Files.writeString(file, "\uFEFF1,오류,20,X,wrong\n\uFEFF2,이름,20,X,100\n3,정상,20,X,100\n");
+
+    var result = new TextUserFileLoader(file.toString()).load();
+
+    assertThat(result.users()).containsExactly(new User(3, "정상", 20, "X", 100));
+    assertThat(result.failures())
+        .containsExactly(
+            new ParseFailure(1, "\uFEFF1,오류,20,X,wrong", "연봉의 정수 형식이 올바르지 않습니다."),
+            new ParseFailure(2, "\uFEFF2,이름,20,X,100", "ID의 정수 형식이 올바르지 않습니다."));
   }
 
   @ParameterizedTest
